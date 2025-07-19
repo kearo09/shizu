@@ -7,5 +7,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_connection():
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    conn.set_client_encoding('UTF8')  # ✅ Encoding fix
+    with conn.cursor() as cur:
+        cur.execute("SET client_encoding TO 'UTF8';")
     return conn
