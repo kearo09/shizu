@@ -1,16 +1,10 @@
-import os
 import psycopg2
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+from db import get_connection  # ✅ Correct DB connection import
 
-def get_connection():
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    conn.set_client_encoding('UTF8')  # 👈 this line is crucial
-    return conn
-
-# ✅ Track user's name and username in every message
+# Track user's name and username in every message
 async def track_user_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = update.effective_user
@@ -22,7 +16,7 @@ async def track_user_history(update: Update, context: ContextTypes.DEFAULT_TYPE)
         name = (user.full_name or "").strip()
         username = (user.username or "(empty)").strip()
 
-        conn = get_conn()
+        conn = get_connection()
         cur = conn.cursor()
 
         cur.execute("""
@@ -45,8 +39,7 @@ async def track_user_history(update: Update, context: ContextTypes.DEFAULT_TYPE)
         print(f"🔥 track_user_history error: {e}")
 
 
-# ✅ /info command (reply to someone's message)
-# ✅ /detail command (reply to someone's message)
+# /detail command (reply to someone's message)
 async def detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
         await update.message.reply_text("Reply to a user's message to get their info.")
@@ -54,17 +47,17 @@ async def detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.message.reply_to_message.from_user
 
-    conn = get_conn()
+    conn = get_connection()
     cur = conn.cursor()
 
-    # 🔁 Fetch names from ALL groups
+    # Fetch distinct names from all groups
     cur.execute("""
         SELECT DISTINCT name FROM user_history
         WHERE user_id = %s
     """, (user.id,))
     names = [row[0] for row in cur.fetchall()]
 
-    # 🔁 Fetch usernames from ALL groups
+    # Fetch distinct usernames from all groups
     cur.execute("""
         SELECT DISTINCT username FROM user_history
         WHERE user_id = %s
@@ -81,7 +74,8 @@ async def detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
-# ✅ Handlers list to import in bot.py
+# Handlers list to import in bot.py
 info_handlers = [
     CommandHandler("detail", detail_command)
 ]
+
