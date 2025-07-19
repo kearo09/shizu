@@ -14,42 +14,45 @@ from telegram.ext import (
     filters,
 )
 from welcome import welcome_handler
-from group_commands import add_handlers  # ✅ Make sure this function exists and adds handlers to application
+from group_commands import add_handlers
 from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
 
+# === ENV CONFIG ===
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-def get_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", 8080))
 WEBHOOK_PATH = "/" + BOT_TOKEN
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = "llama3-70b-8192"
 
-# Logging
+# === Fallback Models ===
+fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
+
+# === Logging ===
 logging.basicConfig(level=logging.INFO)
 
-# /start handler
+
+# === PostgreSQL Connection ===
+def get_connection():
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn.set_client_encoding('UTF8')
+    return conn
+
+
+# === /start handler ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    chat = update.effective_chat
 
     try:
         conn = get_connection()
         cur = conn.cursor()
-
         cur.execute("""
             INSERT INTO users (user_id, username, full_name)
             VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, full_name = EXCLUDED.full_name;
+            ON CONFLICT (user_id) DO UPDATE 
+            SET username = EXCLUDED.username, full_name = EXCLUDED.full_name;
         """, (user.id, user.username, user.full_name))
-
         conn.commit()
         cur.close()
         conn.close()
@@ -59,30 +62,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hey! I'm alive with Groq 🔥")
 
 
-# Groq LLM integration
+# === Groq fallback LLM ===
 async def chat_with_groq(prompt: str) -> str:
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
-    json_data = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-    }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers=headers, json=json_data, timeout=30
-            )
-            result = response.json()
-            return result["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            logging.error(f"Groq Error: {e}")
-            return "Kuch error ho gaya 😓"
+    for model in fallback_models:
+        json_data = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
 
-# Text handler
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers, json=json_data, timeout=30
+                )
+                response.raise_for_status()
+                result = response.json()
+                return result["choices"][0]["message"]["content"].strip()
+
+            except httpx.HTTPStatusError as e:
+                logging.warning(f"⚠️ Model {model} failed: {e.response.status_code}")
+                continue
+            except Exception as e:
+                logging.error(f"❌ Groq error with model {model}: {e}")
+                continue
+
+    return "😓 Sorry, all models failed to respond right now."
+
+
+# === Text message handler ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
         user_text = update.message.text
@@ -90,46 +103,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await chat_with_groq(user_text)
         await update.message.reply_text(reply)
 
-# Health check
+
+# === Health check ===
 async def health_check(request):
     return web.Response(text="OK", status=200)
 
-# Webhook handler
+
+# === Webhook handler ===
 async def telegram_webhook_handler(request):
     data = await request.json()
     update = Update.de_json(data, request.app["bot"].bot)
     await request.app["bot"].update_queue.put(update)
     return web.Response(text="OK")
 
-# Main bot runner
+
+# === Main bot runner ===
 async def main():
     if not BOT_TOKEN or not WEBHOOK_URL or not GROQ_API_KEY:
         raise Exception("BOT_TOKEN, WEBHOOK_URL, and GROQ_API_KEY must be set!")
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # ✅ Register all handlers
+    # Register handlers
     app_bot.add_handler(CommandHandler("start", start))
-    add_handlers(app_bot)  # ✅ Corrected this line
-    app_bot.add_handler(welcome_handler())  # ✅ This line is now correct
-    register_fun_commands(app_bot)         # ✅ add this line here
-
-    # 🧠 Track user history
+    add_handlers(app_bot)
+    app_bot.add_handler(welcome_handler())
+    register_fun_commands(app_bot)
     app_bot.add_handler(MessageHandler(filters.ALL, track_user_history), group=-2)
-
-    # 🕵️‍♂️ Detail command
     for handler in info_handlers:
         app_bot.add_handler(handler)
-
-    
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Start bot and set webhook
+    # Start app and set webhook
     await app_bot.initialize()
     await app_bot.start()
     await app_bot.bot.set_webhook(WEBHOOK_URL + WEBHOOK_PATH)
 
-    # AIOHTTP app setup
     app = web.Application()
     app["bot"] = app_bot
     app.router.add_post(WEBHOOK_PATH, telegram_webhook_handler)
@@ -144,7 +153,7 @@ async def main():
     while True:
         await asyncio.sleep(3600)
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-
 
