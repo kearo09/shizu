@@ -5,8 +5,10 @@ from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-def get_conn():
-    return psycopg2.connect(DATABASE_URL)
+def get_connection():
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    conn.set_client_encoding('UTF8')  # 👈 this line is crucial
+    return conn
 
 # ✅ Track user's name and username in every message
 async def track_user_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
