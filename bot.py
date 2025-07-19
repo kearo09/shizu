@@ -4,6 +4,8 @@ import logging
 import httpx
 from aiohttp import web
 from telegram import Update
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -11,7 +13,16 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from welcome import welcome_handler
 from group_commands import add_handlers  # ✅ Make sure this function exists and adds handlers to application
+from group_fun import register_fun_commands
+from info import track_user_history, info_handlers
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+def get_connection():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -26,7 +37,27 @@ logging.basicConfig(level=logging.INFO)
 
 # /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO users (user_id, username, full_name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, full_name = EXCLUDED.full_name;
+        """, (user.id, user.username, user.full_name))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logging.error(f"Database error: {e}")
+
     await update.message.reply_text("Hey! I'm alive with Groq 🔥")
+
 
 # Groq LLM integration
 async def chat_with_groq(prompt: str) -> str:
@@ -80,6 +111,17 @@ async def main():
     # ✅ Register all handlers
     app_bot.add_handler(CommandHandler("start", start))
     add_handlers(app_bot)  # ✅ Corrected this line
+    app_bot.add_handler(welcome_handler())  # ✅ This line is now correct
+    register_fun_commands(app_bot)         # ✅ add this line here
+
+    # 🧠 Track user history
+    app_bot.add_handler(MessageHandler(filters.ALL, track_user_history), group=-2)
+
+    # 🕵️‍♂️ Detail command
+    for handler in info_handlers:
+        app_bot.add_handler(handler)
+
+    
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start bot and set webhook
