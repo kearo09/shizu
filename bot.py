@@ -17,6 +17,8 @@ from welcome import welcome_handler
 from group_commands import add_handlers
 from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
+from db import get_connection
+
 
 # === ENV CONFIG ===
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -31,13 +33,6 @@ fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
 
 # === Logging ===
 logging.basicConfig(level=logging.INFO)
-
-
-# === PostgreSQL Connection ===
-def get_connection():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    conn.set_client_encoding('UTF8')
-    return conn
 
 
 # === /start handler ===
