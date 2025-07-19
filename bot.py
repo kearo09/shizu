@@ -11,6 +11,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from group_commands import add_handlers
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -80,6 +81,7 @@ async def main():
 
     # Register handlers
     app_bot.add_handler(CommandHandler("start", start))
+    add_handlers(application)  # ✅ Register group commands
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await app_bot.initialize()
