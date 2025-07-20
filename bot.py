@@ -15,12 +15,9 @@ from telegram.ext import (
 from welcome import welcome_handler
 from group_commands import add_handlers
 from group_fun import register_fun_commands
-from info import track_user_history, info_handlers
-from database import get_connection
 from economy import get_economy_handlers
 
 # === ENV CONFIG ===
-DATABASE_URL = os.getenv("DATABASE_URL")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", 8080))
@@ -33,29 +30,9 @@ logging.basicConfig(level=logging.INFO)
 # === Groq fallback models ===
 fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
 
-# === Global DB pool ===
-db_pool = None
-
 # === /start command ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global db_pool
-    if db_pool is None:
-        db_pool = await connect_db()
-
-    user = update.effective_user
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO users (user_id, username)
-                VALUES ($1, $2)
-                ON CONFLICT (user_id) DO UPDATE 
-                SET username = EXCLUDED.username;
-            """, user.id, user.username)
-    except Exception as e:
-        logging.error(f"Database error: {e}")
-
     await update.message.reply_text("Hey! I'm alive with Groq 🔥")
-
 
 # === Groq fallback LLM ===
 async def chat_with_groq(prompt: str) -> str:
@@ -79,7 +56,6 @@ async def chat_with_groq(prompt: str) -> str:
                 response.raise_for_status()
                 result = response.json()
                 return result["choices"][0]["message"]["content"].strip()
-
             except httpx.HTTPStatusError as e:
                 logging.warning(f"⚠️ Model {model} failed: {e.response.status_code}")
                 continue
@@ -89,7 +65,6 @@ async def chat_with_groq(prompt: str) -> str:
 
     return "😓 Sorry, all models failed to respond right now."
 
-
 # === Text message handler ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text:
@@ -98,11 +73,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await chat_with_groq(user_text)
         await update.message.reply_text(reply)
 
-
 # === Health check ===
 async def health_check(request):
     return web.Response(text="OK", status=200)
-
 
 # === Webhook handler ===
 async def telegram_webhook_handler(request):
@@ -111,14 +84,10 @@ async def telegram_webhook_handler(request):
     await request.app["bot"].update_queue.put(update)
     return web.Response(text="OK")
 
-
 # === Main bot runner ===
 async def main():
-    global db_pool
     if not BOT_TOKEN or not WEBHOOK_URL or not GROQ_API_KEY:
         raise Exception("BOT_TOKEN, WEBHOOK_URL, and GROQ_API_KEY must be set!")
-
-    db_pool = await connect_db()
 
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -132,14 +101,7 @@ async def main():
     for handler in get_economy_handlers():
         app_bot.add_handler(handler)
 
-    # Info handlers
-    for handler in info_handlers:
-        app_bot.add_handler(handler)
-
-    # User tracker (early, before commands)
-    app_bot.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), track_user_history), group=-2)
-
-    # Chat fallback handler
+    # Fallback chat handler
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message), group=1)
 
     # Start bot and webhook
@@ -160,7 +122,6 @@ async def main():
     logging.info(f"🚀 Bot running on port {PORT} | Webhook set to {WEBHOOK_URL + WEBHOOK_PATH}")
     while True:
         await asyncio.sleep(3600)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
