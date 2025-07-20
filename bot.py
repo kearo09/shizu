@@ -19,6 +19,8 @@ from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
 from db import get_connection
 
+print("DEBUG from bot.py:", os.getenv("DATABASE_URL"))
+
 
 # === ENV CONFIG ===
 DATABASE_URL = os.getenv("DATABASE_URL")
