@@ -1,6 +1,6 @@
 python-telegram-bot[webhooks]==20.8
 aiohttp
 httpx
-asyncpg
+psycopg2==2.9.10
 
 
