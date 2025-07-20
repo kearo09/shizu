@@ -5,7 +5,6 @@ import httpx
 from aiohttp import web
 from telegram import Update
 import psycopg2
-from psycopg2.extras import RealDictCursor
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -45,10 +44,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO users (user_id, username, full_name)
+            INSERT INTO users (user_id, current_username, current_full_name)
             VALUES (%s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE 
-            SET username = EXCLUDED.username, full_name = EXCLUDED.full_name;
+            SET current_username = EXCLUDED.current_username, current_full_name = EXCLUDED.current_full_name;
         """, (user.id, user.username, user.full_name))
         conn.commit()
         cur.close()
@@ -126,10 +125,17 @@ async def main():
     add_handlers(app_bot)
     app_bot.add_handler(welcome_handler())
     register_fun_commands(app_bot)
-    app_bot.add_handler(MessageHandler(filters.ALL, track_user_history), group=-2)
+
+    # Track user history before processing commands & fun commands
+    # Use a negative group so it runs early but after some essential handlers if needed
+    app_bot.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), track_user_history), group=-2)
+
+    # Add /detail and other info command handlers
     for handler in info_handlers:
         app_bot.add_handler(handler)
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Handle general chat messages last so they don't block others
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message), group=1)
 
     # Start app and set webhook
     await app_bot.initialize()
