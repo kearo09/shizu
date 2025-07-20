@@ -4,7 +4,6 @@ import logging
 import httpx
 from aiohttp import web
 from telegram import Update
-import psycopg2
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -35,28 +34,29 @@ fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
 # === Logging ===
 logging.basicConfig(level=logging.INFO)
 
+from database import connect_db
 
-# === /start handler ===
+db_pool = None
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global db_pool
+    if db_pool is None:
+        db_pool = await connect_db()
+
     user = update.effective_user
 
     try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO users (user_id, current_username, current_full_name)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE 
-            SET current_username = EXCLUDED.current_username, current_full_name = EXCLUDED.current_full_name;
-        """, (user.id, user.username, user.full_name))
-        conn.commit()
-        cur.close()
-        conn.close()
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO users (user_id, username)
+                VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE 
+                SET username = EXCLUDED.username;
+            """, user.id, user.username)
     except Exception as e:
         logging.error(f"Database error: {e}")
 
     await update.message.reply_text("Hey! I'm alive with Groq 🔥")
-
 
 # === Groq fallback LLM ===
 async def chat_with_groq(prompt: str) -> str:
