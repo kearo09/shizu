@@ -17,8 +17,8 @@ from group_commands import add_handlers
 from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
 from db import get_connection
+from economy import get_economy_handlers
 
-print("DEBUG from bot.py:", os.getenv("DATABASE_URL"))
 
 
 # === ENV CONFIG ===
@@ -125,6 +125,9 @@ async def main():
     add_handlers(app_bot)
     app_bot.add_handler(welcome_handler())
     register_fun_commands(app_bot)
+    # Register handlers in application
+    for handler in get_economy_handlers():
+        app_bot.add_handler(handler)
 
     # Track user history before processing commands & fun commands
     # Use a negative group so it runs early but after some essential handlers if needed
