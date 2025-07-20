@@ -16,7 +16,7 @@ from welcome import welcome_handler
 from group_commands import add_handlers
 from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
-from database import connect_db
+from database import get_connection
 from economy import get_economy_handlers
 
 # === ENV CONFIG ===
