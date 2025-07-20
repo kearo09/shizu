@@ -11,14 +11,13 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+
 from welcome import welcome_handler
 from group_commands import add_handlers
 from group_fun import register_fun_commands
 from info import track_user_history, info_handlers
-from db import get_connection
+from database import connect_db
 from economy import get_economy_handlers
-
-
 
 # === ENV CONFIG ===
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -28,23 +27,22 @@ PORT = int(os.getenv("PORT", 8080))
 WEBHOOK_PATH = "/" + BOT_TOKEN
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# === Fallback Models ===
-fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
-
 # === Logging ===
 logging.basicConfig(level=logging.INFO)
 
-from database import connect_db
+# === Groq fallback models ===
+fallback_models = ["llama3-70b-8192", "llama3-8b-8192", "gemma-7b-it"]
 
+# === Global DB pool ===
 db_pool = None
 
+# === /start command ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global db_pool
     if db_pool is None:
         db_pool = await connect_db()
 
     user = update.effective_user
-
     try:
         async with db_pool.acquire() as conn:
             await conn.execute("""
@@ -57,6 +55,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Database error: {e}")
 
     await update.message.reply_text("Hey! I'm alive with Groq 🔥")
+
 
 # === Groq fallback LLM ===
 async def chat_with_groq(prompt: str) -> str:
@@ -115,32 +114,35 @@ async def telegram_webhook_handler(request):
 
 # === Main bot runner ===
 async def main():
+    global db_pool
     if not BOT_TOKEN or not WEBHOOK_URL or not GROQ_API_KEY:
         raise Exception("BOT_TOKEN, WEBHOOK_URL, and GROQ_API_KEY must be set!")
 
+    db_pool = await connect_db()
+
     app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Register handlers
+    # Register command handlers
     app_bot.add_handler(CommandHandler("start", start))
     add_handlers(app_bot)
     app_bot.add_handler(welcome_handler())
     register_fun_commands(app_bot)
-    # Register handlers in application
+
+    # Economy handlers
     for handler in get_economy_handlers():
         app_bot.add_handler(handler)
 
-    # Track user history before processing commands & fun commands
-    # Use a negative group so it runs early but after some essential handlers if needed
-    app_bot.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), track_user_history), group=-2)
-
-    # Add /detail and other info command handlers
+    # Info handlers
     for handler in info_handlers:
         app_bot.add_handler(handler)
 
-    # Handle general chat messages last so they don't block others
+    # User tracker (early, before commands)
+    app_bot.add_handler(MessageHandler(filters.ALL & (~filters.COMMAND), track_user_history), group=-2)
+
+    # Chat fallback handler
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message), group=1)
 
-    # Start app and set webhook
+    # Start bot and webhook
     await app_bot.initialize()
     await app_bot.start()
     await app_bot.bot.set_webhook(WEBHOOK_URL + WEBHOOK_PATH)
