@@ -7,11 +7,15 @@ print("DEBUG: DATABASE_URL =", DATABASE_URL)
 
 def get_connection():
     try:
-        conn = psycopg2.connect(DATABASE_URL)  # without cursor_factory here
-        with conn.cursor() as cur:
-            cur.execute("SET client_encoding TO 'UTF8';")  # set encoding explicitly
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.set_client_encoding('UTF8')
         print("✅ DB connected")
         return conn
     except Exception as e:
-        print("DB connection failed:", e)
+        print("❌ DB connection failed:", e)
         raise
+
+# Optional: convenient helper for getting a cursor
+def get_dict_cursor():
+    conn = get_connection()
+    return conn.cursor(cursor_factory=RealDictCursor), conn
