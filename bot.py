@@ -15,7 +15,7 @@ from telegram.ext import (
 from welcome import welcome_handler
 from group_commands import add_handlers
 from group_fun import register_fun_commands
-from economy import get_economy_handlers
+# from economy import get_economy_handlers
 
 # === ENV CONFIG ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -97,9 +97,9 @@ async def main():
     app_bot.add_handler(welcome_handler())
     register_fun_commands(app_bot)
 
-    # Economy handlers
-    for handler in get_economy_handlers():
-        app_bot.add_handler(handler)
+    # # Economy handlers
+    # for handler in get_economy_handlers():
+    #     app_bot.add_handler(handler)
 
     # Fallback chat handler
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message), group=1)
